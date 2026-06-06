@@ -4,12 +4,13 @@
  * Board: Magicbit NEO (ESP32)
  *
  * How it works:
- *   - Normal -> Green light + no sound
- *   - Flood  -> Red flashing + loud beeps
+ *   - Normal      -> Green light + no sound
+ *   - Warning     -> Amber light + soft beep
+ *   - Flood!      -> Red flashing + loud beeps
  *
  * Wiring (water sensor to extension connector):
  *   Water level sensor S (signal) -> Pin 33
- *   Water level sensor + (VCC)    -> Pin 32
+ *   Water level sensor + (VCC)    -> 3.3V
  *   Water level sensor - (GND)    -> GND
  *
  * On-board components used:
@@ -30,8 +31,9 @@ Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define SENSOR_PIN    33   // Analog input
 #define SENSOR_POWER  32   // Powers the sensor on/off
 
-// --- Flood Threshold ---
-#define FLOOD_LEVEL   300  // Above this = FLOOD
+// --- Water Level Thresholds ---
+#define LEVEL_WARNING  100   // Above = WARNING (amber)
+#define LEVEL_DANGER   1500  // Above = FLOOD (red)
 
 void setup() {
   Serial.begin(115200);
@@ -69,9 +71,7 @@ void loop() {
   }
   int waterLevel = total / 10;
 
-  bool flood = waterLevel > FLOOD_LEVEL;
-
-  if (flood) {
+  if (waterLevel > LEVEL_DANGER) {
     // FLOOD - flash red + beep
     led.setPixelColor(0, led.Color(255, 0, 0));
     led.show();
@@ -80,18 +80,28 @@ void loop() {
     led.setPixelColor(0, led.Color(0, 0, 0));
     led.show();
     delay(200);
+    Serial.print("Water Level: ");
+    Serial.print(waterLevel);
+    Serial.println(" -> FLOOD!");
+  } else if (waterLevel > LEVEL_WARNING) {
+    // WARNING - amber + soft beep
+    led.setPixelColor(0, led.Color(255, 80, 0));
+    led.show();
+    tone(BUZZER_PIN, 500, 100);
+    delay(500);
+    Serial.print("Water Level: ");
+    Serial.print(waterLevel);
+    Serial.println(" -> WARNING");
   } else {
     // SAFE - steady green, no sound
     led.setPixelColor(0, led.Color(0, 255, 0));
     led.show();
     noTone(BUZZER_PIN);
     delay(500);
+    Serial.print("Water Level: ");
+    Serial.print(waterLevel);
+    Serial.println(" -> SAFE");
   }
-
-  Serial.print("Water Level: ");
-  Serial.print(waterLevel);
-  Serial.print(" -> ");
-  Serial.println(flood ? "FLOOD!" : "SAFE");
 }
 
 int readWaterSensor() {
