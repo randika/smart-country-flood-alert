@@ -31,7 +31,7 @@ Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define SENSOR_POWER  32   // Powers the sensor on/off
 
 // --- Flood Threshold ---
-#define FLOOD_LEVEL   800  // Above this = FLOOD
+#define FLOOD_LEVEL   300  // Above this = FLOOD
 
 void setup() {
   Serial.begin(115200);
