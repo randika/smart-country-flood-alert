@@ -51,12 +51,17 @@ Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // --- Thresholds (tune these with actual readings) ---
 #define RESERVOIR_FULL   500   // Reservoir level to open gate
+#define RESERVOIR_LOW    200   // Reservoir level to close gate
+#define GATE_OPEN_TIME   5000  // Max time gate stays open (ms) — prevents solenoid overheating
+#define GATE_COOL_TIME   5000  // Cool down before gate can reopen (ms)
 #define RIVERBED_WARNING 100   // River bed warning level (amber)
 #define RIVERBED_DANGER  1500  // River bed flood level (red)
 #define RIVERBED_SAFE    50    // River bed drained enough to reset
 
 // --- State ---
 bool gateOpen = false;
+unsigned long gateOpenedAt = 0;
+unsigned long gateClosedAt = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -94,12 +99,17 @@ void loop() {
   Serial.print("  River: ");
   Serial.print(riverbed);
 
-  // --- Gate control based on reservoir level ---
-  if (!gateOpen && reservoir > RESERVOIR_FULL) {
+  // --- Gate control (with overheat protection) ---
+  unsigned long now = millis();
+  bool cooledDown = (now - gateClosedAt) > GATE_COOL_TIME;
+
+  if (!gateOpen && reservoir > RESERVOIR_FULL && cooledDown) {
     openGate();
+    gateOpenedAt = now;
     Serial.print("  -> GATE OPEN");
-  } else if (gateOpen && reservoir < RIVERBED_SAFE) {
+  } else if (gateOpen && (reservoir < RESERVOIR_LOW || (now - gateOpenedAt) > GATE_OPEN_TIME)) {
     closeGate();
+    gateClosedAt = now;
     Serial.print("  -> GATE CLOSED");
   }
 
