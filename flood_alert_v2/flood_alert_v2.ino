@@ -28,19 +28,20 @@
  *   Relay NO                   → Solenoid wire 1
  *   Solenoid wire 2            → SMPS GND
  *
- * On-board:
- *   NeoPixel (Pin 13) — GREEN / AMBER / RED
- *   Buzzer (Pin 25)   — warning + flood siren
+ *   Green LED (+ 220ohm)      → Pin 23
+ *   Yellow LED (+ 220ohm)     → Pin 22
+ *   Red LED (+ 220ohm)        → Pin 21
+ *   Buzzer (+)                 → Pin 19
+ *   All GND legs               → GND rail
  */
 
-#include <Adafruit_NeoPixel.h>
+// --- External LEDs ---
+#define GREEN_LED_PIN   23
+#define YELLOW_LED_PIN  22
+#define RED_LED_PIN     21
 
-// --- NeoPixel ---
-#define LED_PIN       13
-Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-// --- Buzzer ---
-#define BUZZER_PIN    25
+// --- External Buzzer ---
+#define BUZZER_PIN      19
 
 // --- Water Sensors ---
 #define RESERVOIR_PIN   35   // Analog — reservoir water level
@@ -52,29 +53,28 @@ Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 // --- Thresholds (tune these with actual readings) ---
 #define RESERVOIR_FULL   500   // Reservoir level to open gate
 #define RESERVOIR_LOW    200   // Reservoir level to close gate
-#define GATE_OPEN_TIME   5000  // Max time gate stays open (ms) — prevents solenoid overheating
-#define GATE_COOL_TIME   5000  // Cool down before gate can reopen (ms)
 #define RIVERBED_WARNING 100   // River bed warning level (amber)
 #define RIVERBED_DANGER  1500  // River bed flood level (red)
-#define RIVERBED_SAFE    50    // River bed drained enough to reset
 
 // --- State ---
 bool gateOpen = false;
-unsigned long gateOpenedAt = 0;
-unsigned long gateClosedAt = 0;
 
 void setup() {
   Serial.begin(115200);
   delay(500);
 
+  pinMode(GREEN_LED_PIN, OUTPUT);
+  pinMode(YELLOW_LED_PIN, OUTPUT);
+  pinMode(RED_LED_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
+
+  allLedsOff();
   noTone(BUZZER_PIN);
   closeGate();
 
-  led.begin();
-  led.setBrightness(50);
-  setColor(0, 255, 0);  // Start green
+  // Start green
+  digitalWrite(GREEN_LED_PIN, HIGH);
 
   Serial.println("================================");
   Serial.println("  Flood Alert System v2");
@@ -99,38 +99,36 @@ void loop() {
   Serial.print("  River: ");
   Serial.print(riverbed);
 
-  // --- Gate control (with overheat protection) ---
-  unsigned long now = millis();
-  bool cooledDown = (now - gateClosedAt) > GATE_COOL_TIME;
-
-  if (!gateOpen && reservoir > RESERVOIR_FULL && cooledDown) {
+  // --- Gate control based on reservoir water level ---
+  if (!gateOpen && reservoir > RESERVOIR_FULL) {
     openGate();
-    gateOpenedAt = now;
     Serial.print("  -> GATE OPEN");
-  } else if (gateOpen && (reservoir < RESERVOIR_LOW || (now - gateOpenedAt) > GATE_OPEN_TIME)) {
+  } else if (gateOpen && reservoir < RESERVOIR_LOW) {
     closeGate();
-    gateClosedAt = now;
     Serial.print("  -> GATE CLOSED");
   }
 
   // --- Alert based on river bed level ---
   if (riverbed > RIVERBED_DANGER) {
     // FLOOD — red flash + siren
-    setColor(255, 0, 0);
+    allLedsOff();
+    digitalWrite(RED_LED_PIN, HIGH);
     tone(BUZZER_PIN, 1000, 200);
     delay(200);
-    setColor(0, 0, 0);
+    digitalWrite(RED_LED_PIN, LOW);
     delay(200);
     Serial.println("  FLOOD!");
   } else if (riverbed > RIVERBED_WARNING) {
-    // WARNING — amber + soft beep
-    setColor(255, 80, 0);
+    // WARNING — yellow + soft beep
+    allLedsOff();
+    digitalWrite(YELLOW_LED_PIN, HIGH);
     tone(BUZZER_PIN, 500, 100);
     delay(500);
     Serial.println("  WARNING");
   } else {
     // SAFE — green, no sound
-    setColor(0, 255, 0);
+    allLedsOff();
+    digitalWrite(GREEN_LED_PIN, HIGH);
     noTone(BUZZER_PIN);
     delay(500);
     Serial.println("  SAFE");
@@ -140,18 +138,19 @@ void loop() {
 // --- Helpers ---
 
 void openGate() {
-  digitalWrite(RELAY_PIN, HIGH);
+  digitalWrite(RELAY_PIN, LOW);   // LOW = relay ON = solenoid opens
   gateOpen = true;
 }
 
 void closeGate() {
-  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(RELAY_PIN, HIGH);  // HIGH = relay OFF = solenoid closes
   gateOpen = false;
 }
 
-void setColor(int r, int g, int b) {
-  led.setPixelColor(0, led.Color(r, g, b));
-  led.show();
+void allLedsOff() {
+  digitalWrite(GREEN_LED_PIN, LOW);
+  digitalWrite(YELLOW_LED_PIN, LOW);
+  digitalWrite(RED_LED_PIN, LOW);
 }
 
 int readSensor(int pin) {
