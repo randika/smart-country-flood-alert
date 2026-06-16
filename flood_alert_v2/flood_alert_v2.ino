@@ -1,38 +1,33 @@
 /*
- * Flood Alert v2 - Combined Water Flow + Alert System
+ * Flood Alert v2 - Flood by Pump (No Solenoid)
  * Student: Mikeyla, Grade 4, Gateway College Colombo
  * Board: Magicbit NEO (ESP32)
  *
- * Flow:
- *   1. Pump fills reservoir (manual switch, not board-controlled)
- *   2. Reservoir sensor detects water level
- *   3. When reservoir full → solenoid opens (flood gate)
- *   4. Water flows to river bed
- *   5. River bed sensor detects level → GREEN/AMBER/RED + siren
- *   6. Water drains naturally, siren stops
- *   7. Repeat
+ * Flow (fully automated):
+ *   1. Power on → pump fills reservoir → overflows to river bed
+ *   2. River bed sensor: SAFE → WARNING → FLOOD
+ *   3. Flood detected → pump stops
+ *   4. Water drains naturally → back to SAFE
+ *   5. SAFE for a few seconds → pump starts again
+ *   6. Repeat
  *
  * Wiring:
- *   Reservoir water sensor S   → Pin 35 (analog)
- *   Reservoir water sensor +   → 3.3V
- *   Reservoir water sensor -   → GND
- *
  *   River bed water sensor S   → Pin 33 (analog)
  *   River bed water sensor +   → 3.3V
  *   River bed water sensor -   → GND
  *
- *   Relay IN1                  → Pin 26
- *   Relay VCC                  → NEO 5V
- *   Relay GND                  → NEO GND
- *   Relay COM                  → SMPS +12V
- *   Relay NO                   → Solenoid wire 1
- *   Solenoid wire 2            → SMPS GND
+ *   Single Relay:
+ *     S                        → Pin 26
+ *     +                        → NEO 5V
+ *     –                        → NEO GND
+ *     COM                      → SMPS +12V
+ *     NO                       → Pump + (red)
+ *     Pump – (black)           → SMPS GND
  *
  *   Green LED (+ 220ohm)      → Pin 23
  *   Yellow LED (+ 220ohm)     → Pin 22
  *   Red LED (+ 220ohm)        → Pin 21
- *   Buzzer (+)                 → Pin 19
- *   All GND legs               → GND rail
+ *   Buzzer                     → Pin 25 (on-board)
  */
 
 // --- External LEDs ---
@@ -40,24 +35,27 @@
 #define YELLOW_LED_PIN  22
 #define RED_LED_PIN     21
 
-// --- External Buzzer ---
-#define BUZZER_PIN      19
+// --- On-board Buzzer ---
+#define BUZZER_PIN      25
 
-// --- Water Sensors ---
-#define RESERVOIR_PIN   35   // Analog — reservoir water level
+// --- Water Sensor ---
 #define RIVERBED_PIN    33   // Analog — river bed water level
 
-// --- Solenoid Relay ---
-#define RELAY_PIN       26
+// --- Pump Relay ---
+#define PUMP_RELAY_PIN  26
 
 // --- Thresholds (tune these with actual readings) ---
-#define RESERVOIR_FULL   500   // Reservoir level to open gate
-#define RESERVOIR_LOW    200   // Reservoir level to close gate
-#define RIVERBED_WARNING 100   // River bed warning level (amber)
-#define RIVERBED_DANGER  1500  // River bed flood level (red)
+#define RIVERBED_WARNING 100   // River bed warning level (yellow)
+#define RIVERBED_DANGER  1500  // River bed flood level (red) → stop pump
+#define RIVERBED_SAFE    50    // River bed drained → restart pump
+
+// --- Timing ---
+#define RESTART_DELAY    5000  // Wait 5s after safe before restarting pump
 
 // --- State ---
-bool gateOpen = false;
+bool pumpOn = false;
+unsigned long safeAt = 0;
+bool waitingToRestart = false;
 
 void setup() {
   Serial.begin(115200);
@@ -67,13 +65,12 @@ void setup() {
   pinMode(YELLOW_LED_PIN, OUTPUT);
   pinMode(RED_LED_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(PUMP_RELAY_PIN, OUTPUT);
 
   allLedsOff();
   noTone(BUZZER_PIN);
-  closeGate();
+  startPump();
 
-  // Start green
   digitalWrite(GREEN_LED_PIN, HIGH);
 
   Serial.println("================================");
@@ -82,30 +79,40 @@ void setup() {
   Serial.println("  By Mikeyla, Grade 4");
   Serial.println("================================");
 
-  // Startup beep
   tone(BUZZER_PIN, 1000, 200);
   delay(300);
   noTone(BUZZER_PIN);
 
-  Serial.println("Waiting for reservoir to fill...");
+  Serial.println("Pump ON — flooding cycle starts...");
 }
 
 void loop() {
-  int reservoir = readSensor(RESERVOIR_PIN);
   int riverbed = readSensor(RIVERBED_PIN);
+  unsigned long now = millis();
 
-  Serial.print("Reservoir: ");
-  Serial.print(reservoir);
-  Serial.print("  River: ");
+  Serial.print("River: ");
   Serial.print(riverbed);
+  Serial.print("  Pump: ");
+  Serial.print(pumpOn ? "ON" : "OFF");
 
-  // --- Gate control based on reservoir water level ---
-  if (!gateOpen && reservoir > RESERVOIR_FULL) {
-    openGate();
-    Serial.print("  -> GATE OPEN");
-  } else if (gateOpen && reservoir < RESERVOIR_LOW) {
-    closeGate();
-    Serial.print("  -> GATE CLOSED");
+  // --- Pump control based on river bed ---
+  if (pumpOn && riverbed > RIVERBED_DANGER) {
+    stopPump();
+    waitingToRestart = false;
+    Serial.print("  -> PUMP OFF (flood!)");
+  }
+
+  if (!pumpOn && riverbed < RIVERBED_SAFE) {
+    if (!waitingToRestart) {
+      safeAt = now;
+      waitingToRestart = true;
+    } else if ((now - safeAt) > RESTART_DELAY) {
+      startPump();
+      waitingToRestart = false;
+      Serial.print("  -> PUMP ON");
+    }
+  } else if (riverbed >= RIVERBED_SAFE) {
+    waitingToRestart = false;
   }
 
   // --- Alert based on river bed level ---
@@ -137,14 +144,14 @@ void loop() {
 
 // --- Helpers ---
 
-void openGate() {
-  digitalWrite(RELAY_PIN, LOW);   // LOW = relay ON = solenoid opens
-  gateOpen = true;
+void startPump() {
+  digitalWrite(PUMP_RELAY_PIN, HIGH);  // HIGH = relay ON = pump runs
+  pumpOn = true;
 }
 
-void closeGate() {
-  digitalWrite(RELAY_PIN, HIGH);  // HIGH = relay OFF = solenoid closes
-  gateOpen = false;
+void stopPump() {
+  digitalWrite(PUMP_RELAY_PIN, LOW);   // LOW = relay OFF = pump stops
+  pumpOn = false;
 }
 
 void allLedsOff() {
