@@ -45,9 +45,9 @@
 #define PUMP_RELAY_PIN  26
 
 // --- Thresholds (tune these with actual readings) ---
-#define RIVERBED_WARNING 100   // River bed warning level (yellow)
-#define RIVERBED_DANGER  1500  // River bed flood level (red) → stop pump
-#define RIVERBED_SAFE    50    // River bed drained → restart pump
+#define RIVERBED_WARNING 500   // River bed warning level (yellow)
+#define RIVERBED_DANGER  1400  // River bed flood level (red) → stop pump
+#define RIVERBED_SAFE    400   // River bed drained → restart pump
 
 // --- Timing ---
 #define RESTART_DELAY    5000  // Wait 5s after safe before restarting pump
@@ -145,12 +145,12 @@ void loop() {
 // --- Helpers ---
 
 void startPump() {
-  digitalWrite(PUMP_RELAY_PIN, HIGH);  // HIGH = relay ON = pump runs
+  digitalWrite(PUMP_RELAY_PIN, LOW);   // LOW = relay ON (active-low module)
   pumpOn = true;
 }
 
 void stopPump() {
-  digitalWrite(PUMP_RELAY_PIN, LOW);   // LOW = relay OFF = pump stops
+  digitalWrite(PUMP_RELAY_PIN, HIGH);  // HIGH = relay OFF (active-low module)
   pumpOn = false;
 }
 
